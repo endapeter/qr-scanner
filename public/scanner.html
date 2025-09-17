@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Attendance Scanner</title>
+
+	<style>
+		:root{
+			--bg: #f5f7fb;
+			--card: #ffffff;
+			--muted: #6b7280;
+			--accent: #2563eb;
+			--success: #10b981;
+			--danger: #ef4444;
+			font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+		}
+
+		/* Make box-sizing global to avoid overflow issues */
+		*, *::before, *::after { box-sizing: border-box; }
+
+		html,body{height:100%;margin:0;background:var(--bg);}
+
+		/* container is now fluid and vertical: preview on top, panels below */
+		.container{
+			width: calc(100% - 2rem);
+			max-width: 960px;
+			margin: 1rem auto;
+			padding: 1rem;
+			display:flex;
+			flex-direction:column;
+			gap:1rem;
+		}
+
+		.left, .right{
+			background:var(--card);
+			border-radius:12px;
+			box-shadow:0 6px 18px rgba(15,23,42,0.06);
+			padding:1rem;
+		}
+
+		/* left is the preview area, full width */
+		.left{width:100%;}
+
+		/* right becomes the area below the preview, full width */
+		.right{width:100%;display:flex;flex-direction:column;gap:1rem;padding-top:0.75rem;}
+
+		h1{font-size:1.25rem;margin:0 0 0.5rem 0;color:#0f172a;}
+		.controls{display:flex;gap:.5rem;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;}
+		select, button{
+			padding:.5rem .75rem;border-radius:8px;border:1px solid #e6eefc;background:white;
+			font-size:.95rem;
+		}
+		button{
+			background:var(--accent);color:white;border:0;cursor:pointer;
+		}
+		button.secondary{background:transparent;color:var(--accent);border:1px solid rgba(37,99,235,0.12);}
+
+		#reader{
+			width:100%;
+			aspect-ratio: 1 / 1;
+			border-radius:8px;
+			overflow:hidden;
+			background:#000;
+			display:flex;
+			align-items:center;
+			justify-content:center;
+			color:#9aa6bf;
+			position:relative;
+		}
+
+		/* Ensure the internal video/canvas keep aspect and fill the square */
+		#reader video, #reader canvas {
+			width: 100% !important;
+			height: 100% !important;
+			object-fit: cover;
+		}
+
+		.panel-title{font-size:.85rem;color:var(--muted);margin-bottom:.35rem;}
+		.photo{
+			height:220px;
+			background:linear-gradient(180deg,#eef2ff,white);
+			border-radius:8px;
+			display:flex;
+			align-items:center;
+			justify-content:center;
+			overflow:hidden;
+			border:1px solid rgba(15,23,42,0.03);
+			width:100%;
+		}
+		.photo img{width:100%;height:100%;object-fit:cover;}
+		.info-card{background:linear-gradient(180deg,#fff,#fbfdff);padding:.75rem;border-radius:8px;border:1px solid rgba(15,23,42,0.03);width:100%;}
+		.firstname{font-weight:600;font-size:1.15rem;color:#0f172a;}
+		.status{font-size:.9rem;color:var(--muted);margin-top:.25rem;}
+		.duplicate{color:var(--danger);font-weight:600;}
+		.success-flash{box-shadow:0 8px 30px rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.12);}
+		.small-muted{font-size:.8rem;color:var(--muted);}
+
+		/* mobile friendly adjustments */
+		@media (max-width:720px){
+			.container{ padding:0.75rem; gap:0.75rem; }
+			h1{font-size:1rem;}
+			.controls{gap:.45rem;}
+			select, button{font-size:.9rem;padding:.45rem .6rem;}
+			.photo{height:200px;}
+		}
+
+		/* small screens very narrow */
+		@media (max-width:420px){
+			.container{ width: calc(100% - 1rem); padding:0.5rem; }
+			.photo{height:180px;}
+			.firstname{font-size:1rem;}
+		}
+	</style>
+
+	<script src="/public/html5-qrcode.min.js"></script>
+</head>
+<body>
+    
+	<div class="container">
+		<div class="left">
+			<h1>Attendance Scanner</h1>
+
+			<div class="controls">
+				<select id="camera-select"><option>Loading cameras...</option></select>
+				<button id="start-btn">Start Scanning</button>
+				<button id="stop-btn" class="secondary" style="display:none;">Stop</button>
+			</div>
+
+			<!-- #reader is now a square (aspect-ratio) -->
+			<div id="reader">Camera preview will appear here</div>
+
+			<div style="margin-top:.75rem;">
+				<span class="small-muted">Status:</span> <span id="status" class="small-muted">Idle</span>
+			</div>
+		</div>
+
+		<!-- panels moved under the preview by CSS stack -->
+		<div class="right">
+			<div class="info-card">
+				<div class="panel-title">Photo</div>
+				<div id="photo-panel" class="photo">
+					<!-- placeholder -->
+					<span id="photo-placeholder" class="small-muted">No photo yet</span>
+				</div>
+			</div>
+
+			<div class="info-card">
+				<div class="panel-title">First Name</div>
+				<div id="firstname-panel" class="firstname">—</div>
+				<div id="other-info" class="status">Surname: <span id="surname">—</span></div>
+			</div>
+		</div>
+	</div>
+
+	<script>
+		// Ensure the #reader element is a true square (height == width).
+		// This avoids non-uniform scaling of the overlay on phones.
+		function enforceSquareReader() {
+			const r = document.getElementById('reader');
+			if (!r) return;
+			const w = r.clientWidth;
+			r.style.height = w + 'px';
+		}
+		window.addEventListener('resize', enforceSquareReader);
+		window.addEventListener('orientationchange', () => {
+			// small delay to allow layout/orientation to settle
+			setTimeout(enforceSquareReader, 200);
+		});
+		// call early on load
+		window.addEventListener('load', enforceSquareReader);
+
+		const serverUrl = "/log";
+
+		const uniqueEntries = new Set();
+		const photoPanel = document.getElementById('photo-panel');
+		const photoPlaceholder = document.getElementById('photo-placeholder');
+		const firstnamePanel = document.getElementById('firstname-panel');
+		const surnameSpan = document.getElementById('surname');
+		const statusSpan = document.getElementById('status');
+		const startBtn = document.getElementById('start-btn');
+		const stopBtn = document.getElementById('stop-btn');
+		const cameraSelect = document.getElementById('camera-select');
+		const readerDiv = document.getElementById('reader');
+
+		let html5QrCode = null;
+		let currentCameraId = null;
+		let scanning = false;
+
+		// Populate camera list
+		Html5Qrcode.getCameras().then(cameras => {
+			cameraSelect.innerHTML = '';
+			if (!cameras || cameras.length === 0) {
+				cameraSelect.innerHTML = '<option>No cameras found</option>';
+				return;
+			}
+			cameras.forEach((cam, idx) => {
+				const opt = document.createElement('option');
+				opt.value = cam.id;
+				opt.textContent = cam.label || `Camera ${idx+1}`;
+				cameraSelect.appendChild(opt);
+			});
+			currentCameraId = cameraSelect.value;
+		}).catch(err => {
+			cameraSelect.innerHTML = `<option>Error: ${err}</option>`;
+		});
+
+		cameraSelect.addEventListener('change', () => {
+			currentCameraId = cameraSelect.value;
+		});
+
+		// Play a short "ding" using WebAudio
+		function playDing(){
+			try{
+				const ctx = new (window.AudioContext || window.webkitAudioContext)();
+				const o = ctx.createOscillator();
+				const g = ctx.createGain();
+				o.type = 'sine';
+				o.frequency.value = 880;
+				g.gain.value = 0.0001;
+				o.connect(g); g.connect(ctx.destination);
+				const now = ctx.currentTime;
+				g.gain.setValueAtTime(0.0001, now);
+				g.gain.exponentialRampToValueAtTime(0.12, now + 0.02);
+				o.start(now);
+				g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+				o.stop(now + 0.2);
+			}catch(e){
+				// ignore audio errors
+			}
+		}
+
+		// Load photo into permanent photo panel by passport_picture filename
+		function setPhotoFromPassport(filename){
+			if(!filename){
+				photoPanel.innerHTML = '<span class="small-muted">No photo available</span>';
+				return;
+			}
+			photoPlaceholder.style.display = 'none';
+			photoPanel.innerHTML = '<span class="small-muted">Searching photo...</span>';
+			const path = `/public/photos/${encodeURIComponent(filename)}`;
+			fetch(path, { method: 'HEAD' }).then(resp => {
+				if(resp.ok){
+					photoPanel.innerHTML = `<img src="${path}" alt="passport">`;
+				} else {
+					photoPanel.innerHTML = '<span class="small-muted">Photo not found</span>';
+				}
+			}).catch(()=> {
+				photoPanel.innerHTML = '<span class="small-muted">Photo not found</span>';
+			});
+		}
+
+		// Called on successful QR decode
+		function onScanSuccess(decodedText, decodedResult){
+			// Log raw scan to browser console
+			console.log("QR scanned (raw):", decodedText);
+			console.log("QR scanned (result object):", decodedResult);
+
+			let entryObj;
+			try{
+				entryObj = JSON.parse(decodedText);
+			}catch(e){
+				statusSpan.textContent = 'Invalid JSON scanned';
+				return;
+			}
+			const entryString = JSON.stringify(entryObj);
+			if(uniqueEntries.has(entryString)){
+				statusSpan.textContent = 'Duplicate entry ignored';
+				statusSpan.classList.add('duplicate');
+				setTimeout(()=> statusSpan.classList.remove('duplicate'), 700);
+				return;
+			}
+			uniqueEntries.add(entryString);
+
+			// Display name fields using current schema keys
+			const firstname = entryObj.first_name || "N/A";
+			const surname = entryObj.surname || "N/A";
+			firstnamePanel.textContent = firstname;
+			surnameSpan.textContent = surname;
+			statusSpan.textContent = 'Recorded';
+			// visual flash on success
+			readerDiv.classList.add('success-flash');
+			setTimeout(()=> readerDiv.classList.remove('success-flash'), 350);
+
+			// Show photo using passport_picture field only
+			if(entryObj.passport_picture){
+				setPhotoFromPassport(entryObj.passport_picture);
+			} else {
+				photoPanel.innerHTML = '<span class="small-muted">No passport_picture in QR to load photo</span>';
+			}
+
+			// play ding
+			playDing();
+
+			// POST to server with improved error handling / diagnostics (same-origin)
+			fetch(serverUrl, {
+				method: 'POST',
+				headers: {'Content-Type': 'application/json'},
+				body: JSON.stringify(entryObj),
+				mode: 'same-origin'
+			}).then(async resp => {
+				if(!resp.ok){
+					const text = await resp.text().catch(()=>'<no body>');
+					console.error('Server returned error', resp.status, text);
+					statusSpan.textContent = `Server error ${resp.status}`;
+				} else {
+					statusSpan.textContent = 'Recorded';
+				}
+			}).catch(err => {
+				console.error('Network error sending data:', err);
+				statusSpan.textContent = 'Network error sending data (see console)';
+			});
+		}
+
+		function onScanFailure(error){
+			// keep silent or log if needed
+			statusSpan.textContent = 'Waiting for QR Code';
+		}
+
+		// Start / Stop handlers
+		startBtn.addEventListener('click', () => {
+			if(scanning) return;
+			if(!currentCameraId){
+				statusSpan.textContent = 'No camera selected';
+				return;
+			}
+			html5QrCode = new Html5Qrcode(/* element id */ "reader");
+			// compute a square qrbox that fits the visible reader area
+			enforceSquareReader(); // make sure size is up to date
+			const qrboxSize = Math.max(100, Math.floor(Math.min(readerDiv.clientWidth, readerDiv.clientHeight) * 0.75)); // scale down a bit
+			const config = { fps: 10, qrbox: qrboxSize };
+			html5QrCode.start(
+				{ deviceId: { exact: currentCameraId } },
+				config,
+				onScanSuccess,
+				onScanFailure
+			).then(() => {
+				scanning = true;
+				startBtn.style.display = 'none';
+				stopBtn.style.display = '';
+				statusSpan.textContent = 'Scanning...';
+			}).catch(err=>{
+				statusSpan.textContent = 'Failed to start camera';
+				console.error(err);
+			});
+		});
+
+		stopBtn.addEventListener('click', ()=> {
+			if(!scanning || !html5QrCode) return;
+			html5QrCode.stop().then(() => {
+				return html5QrCode.clear();
+			}).then(()=>{
+				scanning = false;
+				startBtn.style.display = '';
+				stopBtn.style.display = 'none';
+				statusSpan.textContent = 'Stopped';
+				readerDiv.innerHTML = 'Camera preview will appear here';
+			}).catch(err=>{
+				console.error('Error stopping camera', err);
+			});
+		});
+
+		// initial UI state
+		photoPanel.innerHTML = '<span class="small-muted">No photo yet</span>';
+
+		// Add a small probe to help diagnose CORS / TLS issues on page load
+		async function testServerAvailability(){
+			try{
+				const probe = await fetch(serverUrl, { method: 'OPTIONS', mode: 'cors' });
+				console.log('Server probe (OPTIONS) status:', probe.status);
+			}catch(e){
+				// TLS error or blocked by CORS/preflight will surface here in console
+				console.warn('Server probe failed (possible CORS/TLS issue):', e);
+				// Keep UI short; user can open DevTools for details
+				// Do not overwrite important status if scanning is active
+				if(!scanning) statusSpan.textContent = 'Unable to reach server (see console)';
+			}
+		}
+
+		// Run a probe at startup to reveal immediate issues
+		testServerAvailability();
+
+		// also call once now to set the reader square for initial layout
+		enforceSquareReader();
+	</script>
+</body>
+</html>

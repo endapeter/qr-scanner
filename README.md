@@ -24,17 +24,28 @@ downloads.
 
 ### 1. Requirements
 
-- macOS with Python 3.11+ (check: `python3 --version`; install via
-  `brew install python` if missing)
+- **Conda** (Miniforge or Miniconda). If you don't have it:
+  ```bash
+  brew install --cask miniforge
+  ```
+  (or download Miniconda from <https://docs.conda.io>) then restart your
+  terminal so `conda` is on your PATH.
 - OpenSSL — macOS ships LibreSSL, which works for all commands below
 
 ### 2. Set up the project
 
+The repo ships an `environment.yml`; conda builds the environment from it:
+
 ```bash
 cd /path/to/qr_scanner
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+conda env create -f environment.yml        # first time only
+conda activate qr-attendance                # every new terminal session
+```
+
+If you later change `environment.yml`, update the environment with:
+
+```bash
+conda env update -f environment.yml --prune
 ```
 
 ### 3. Generate TLS certificates
@@ -83,7 +94,7 @@ You should now have `certs/ca.crt`, `certs/server.crt` and `certs/server.key`.
 ### 4. Run the server
 
 ```bash
-source .venv/bin/activate
+conda activate qr-attendance
 python run.py
 ```
 
@@ -151,7 +162,16 @@ ADMIN_PASSWORD='super-secret' python run.py
 ## Keeping it running (launchd)
 
 To have the server start automatically at login, create
-`~/Library/LaunchAgents/com.qrattendance.server.plist`:
+`~/Library/LaunchAgents/com.qrattendance.server.plist`.
+
+launchd does not run your shell, so `conda activate` is not available — use the
+environment's absolute python path instead. Find it with:
+
+```bash
+conda env list               # shows e.g. ~/miniforge3/envs/qr-attendance
+CONDA_PYTHON="$(conda info --base)/envs/qr-attendance/bin/python"
+echo "$CONDA_PYTHON"          # paste this into ProgramArguments below
+```
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -162,7 +182,8 @@ To have the server start automatically at login, create
     <key>Label</key><string>com.qrattendance.server</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/path/to/qr_scanner/.venv/bin/python</string>
+        <!-- conda env python, found with the command above -->
+        <string>/Users/YOURUSER/miniforge3/envs/qr-attendance/bin/python</string>
         <string>run.py</string>
     </array>
     <key>WorkingDirectory</key><string>/path/to/qr_scanner</string>
@@ -187,22 +208,31 @@ launchctl load ~/Library/LaunchAgents/com.qrattendance.server.plist
 launchctl unload ~/Library/LaunchAgents/com.qrattendance.server.plist
 ```
 
-Replace `/path/to/qr_scanner` with the real project path, and prefer running
-`launchctl unload` before upgrading the code.
+Replace `/path/to/qr_scanner` and the python path with the real values, and
+prefer running `launchctl unload` before upgrading the code.
 
 ## Day-to-day operations
 
 ```bash
 # start (manual, in a Terminal window / tmux session)
-source .venv/bin/activate && python run.py
+conda activate qr-attendance && python run.py
 
 # stop the manual instance
 Ctrl-C     (or kill $(cat scanner.pid))
+
+# remove the environment entirely (e.g. to rebuild from scratch)
+conda deactivate && conda env remove -n qr-attendance
 ```
 
 Troubleshooting:
 
 - **"TLS CERTIFICATES NOT FOUND"** → step 3 above.
+- **`CondaEnvException: Environment already exists`** → the env was created
+  before; run `conda activate qr-attendance`, or recreate it with
+  `conda env remove -n qr-attendance && conda env create -f environment.yml`.
+- **`conda: command not found`** → conda isn't initialized in that shell; run
+  `source ~/miniforge3/etc/profile.d/conda.sh` (or `conda init` once and
+  restart the terminal).
 - **Phones can't open the page** → check both devices are on the same Wi-Fi /
   hotspot, the Mac firewall allows Python, and the CA was trusted (step 6).
 - **Certificate warning in Safari on the Mac** → also install and trust

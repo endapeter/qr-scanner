@@ -1,4 +1,8 @@
-"""Scan intake endpoint used by the scanner page, plus the read-only scan API."""
+"""Scan intake endpoint used by the scanner page.
+
+Everything here is reachable by unauthenticated scanning devices. Anything
+containing student data lives in routes/admin.py behind its auth gate.
+"""
 
 from __future__ import annotations
 
@@ -57,17 +61,6 @@ def log_scan() -> tuple[Response, int] | Response:
     payload = {"status": "ok", "class": class_name, "entry": record}
     broker.publish("scan", payload)
     return jsonify(payload), 200
-
-
-@bp.get("/api/scans")
-def api_recent_scans() -> Response:
-    """Recent scans as JSON; use ?class=NAME to filter, ?limit=N to cap."""
-    class_name = request.args.get("class")
-    try:
-        limit = min(int(request.args.get("limit", 500)), 5000)
-    except ValueError:
-        limit = 500
-    return jsonify(database.recent_scans(class_name, limit))
 
 
 @bp.get("/api/active-class")

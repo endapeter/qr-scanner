@@ -49,44 +49,69 @@ If you later change `environment.yml`, update the environment with:
 conda env update -f environment.yml --prune
 ```
 
-### 3. Create the classroom network (Mac hotspot)
+### 3. Create the classroom network
 
-The Mac generates its own Wi-Fi network and the scanning devices join it
-directly — no router, no campus Wi-Fi, and the Mac's IP never changes.
+The scanning devices and the Mac must be on one Wi-Fi network. The attendance
+server needs **no internet** — any isolated LAN works. Two options:
 
-1. System Settings → **Sharing** → **Internet Sharing**:
-   - **Share your connection from**: pick whatever currently gives the Mac
-     internet (Ethernet, or Wi-Fi if the Mac is on Wi-Fi via a dongle)
-   - **To computers using**: check **Wi-Fi**, then click the ⓘ to set the
-     network name and password (use a name like `ATTENDANCE` and a strong
-     password — this network is open to anyone in radio range)
-2. Turn Internet Sharing **on** (macOS asks to confirm; it needs no reboot)
-3. Verify the Mac's address on the new network:
+**Option A — iPhone Personal Hotspot (recommended; works everywhere)**
+
+1. On the iPhone: Settings → **Personal Hotspot** → *Allow Others to Join*
+   → set a strong Wi-Fi password
+2. **Join the Mac to the hotspot first** — the first client reliably gets
+   `172.20.10.2` — then verify:
 
    ```bash
-   ipconfig getifaddr bridge100
+   ipconfig getifaddr en0     # → 172.20.10.2 (or en1 on some Macs)
    ```
 
-   This prints the Mac's IP on the hotspot — it is **`192.168.2.1`** on
-   virtually every Mac (Internet Sharing always hands the gateway that
-   address). Devices that join get `192.168.2.x` from the Mac.
+3. Join every scanning device to the same hotspot
+4. Devices reach the Mac at `https://172.20.10.2:8443` (use whatever the
+   command above printed)
 
-> If your Mac shows a different address, use that value everywhere below
-> instead of `192.168.2.1`.
+> The cellular uplink is irrelevant — the hotspot is just an access point
+> for the LAN. If the IP ever changes (different join order), regenerate the
+> certs with the new IP (step 4) — or keep using the same phone + join order,
+> which keeps the address stable.
 
-Joining devices: phones scan for Wi-Fi as usual and pick your network —
-once they're on it, they can reach the Mac at `https://192.168.2.1:8443`.
+**Option B — Mac generates the network (Internet Sharing)**
 
-> No internet on the Mac (offline classroom)? Internet Sharing still works
-> without an uplink on recent macOS versions — leave "share from" set to any
-> interface and turn it on; the Mac will still run the hotspot and the
-> attendance server needs no internet at all.
+Works on many macOS versions, but **on macOS 26/27 the old Internet Sharing
+stack has been reworked and often silently fails** (the toggle reports
+"on", but no network is ever broadcast — `ifconfig bridge100` shows nothing
+and no `InternetSharing` daemon runs). If that's you, use Option A.
+
+If you want to try it anyway:
+
+1. System Settings → **Sharing** → **Internet Sharing**:
+   - **Share your connection from**: any interface (the source is
+     irrelevant to the server — it never uses the uplink)
+   - **To computers using**: **Wi-Fi** → set network name, WPA2 password,
+     **channel 11** (2.4 GHz — the 5 GHz default is invisible to many
+     devices and is the #1 cause of "enabled but not visible")
+2. Toggle **on**, then toggle the Mac's Wi-Fi off and back on (the AP only
+   broadcasts reliably after this reset)
+3. Verify: `ifconfig bridge100` must exist with `inet 192.168.2.1`
+4. Devices reach the Mac at `https://192.168.2.1:8443`
 
 ### 4. Generate TLS certificates
 
 Camera access on phones requires **HTTPS**, so the server refuses to start
 without certificates. You'll create a small Certificate Authority (CA), then a
-server certificate signed by it that includes your Mac's hotspot IP.
+server certificate signed by it that names the Mac's address on the classroom
+network.
+
+Set two variables first:
+
+```bash
+# The Mac's address on the classroom network — from step 3:
+#   Option A (iPhone hotspot): SERVER_IP=172.20.10.2   # what ipconfig getifaddr en0 printed
+#   Option B (Mac hotspot):    SERVER_IP=192.168.2.1
+SERVER_IP=172.20.10.2
+
+# The Mac's mDNS name (survives IP changes; works in Safari on iOS and macOS):
+LOCAL_NAME=$(hostname)        # e.g. Johns-MacBook.local
+```
 
 ```bash
 mkdir -p certs && cd certs
@@ -97,13 +122,10 @@ openssl req -x509 -new -nodes -key ca.key -sha256 -days 3650 \
     -out ca.crt -subj "/CN=LocalDevCA"
 
 # 2) Create the server key and CSR
-#    192.168.2.1 = the Mac's fixed address on the hotspot it generates
-#    (use whatever `ipconfig getifaddr bridge100` printed if different)
-SERVER_IP=192.168.2.1
 openssl genrsa -out server.key 2048
 openssl req -new -key server.key -out server.csr -subj "/CN=${SERVER_IP}"
 
-# 3) Create a SAN config so browsers trust the cert for that IP
+# 3) Create a SAN config covering the IP and the mDNS name
 cat > san.cnf <<EOF
 [req]
 distinguished_name = req_distinguished_name
@@ -113,6 +135,7 @@ subjectAltName = @alt_names
 [alt_names]
 IP.1 = ${SERVER_IP}
 DNS.1 = localhost
+DNS.2 = ${LOCAL_NAME}
 EOF
 
 # 4) Sign the server certificate with your CA
@@ -133,36 +156,38 @@ python run.py
 
 You'll see the data locations, URLs, and whether admin auth is on. The server
 listens on `https://0.0.0.0:8443` (change with the `QR_PORT` / `QR_HOST`
-environment variables) — the hotspot address is `https://192.168.2.1:8443`.
+environment variables). On devices, use the Mac's address from step 3 —
+e.g. `https://172.20.10.2:8443` (iPhone hotspot) or
+`https://192.168.2.1:8443` (Mac hotspot). On the Mac itself, the mDNS name
+from step 4 also works: `https://<mac-name>.local:8443`.
 
 ### 6. Open the firewall
 
 System Settings → Network → Firewall → Options → allow **Python** incoming
 connections (or temporarily disable the firewall while testing). If macOS
-prompts on first run, choose *Allow*. Make sure the allow applies on the
-hotspot connection too — when devices can't reach the page but the Mac itself
-can (`https://192.168.2.1:8443` in Safari on the Mac), the firewall is the
-usual culprit.
+prompts on first run, choose *Allow*. When devices can't reach the page but
+the Mac itself can (same URL in Safari on the Mac), the firewall is the usual
+culprit.
 
 ### 7. Trust the CA on scanning devices
 
-Each phone/tablet needs to trust your CA **before** opening the scanner page:
+Each phone/tablet needs to trust your CA **before** opening the scanner page.
+Devices must first join the classroom network (step 3), then browse to
+`https://<mac-address-from-step-3>:8443/ca.crt`:
 
-Devices must first join the hotspot Wi-Fi (step 3), then:
-
-- **iOS**: Safari → `https://192.168.2.1:8443/ca.crt` → allow download →
+- **iOS**: Safari → allow download →
   Settings → Profile Downloaded → Install → then
   Settings → General → About → Certificate Trust Settings → enable trust
   for *LocalDevCA*.
-- **Android**: Chrome → `https://192.168.2.1:8443/ca.crt` → download →
+- **Android**: Chrome → download →
   Settings → Security → Encryption & credentials → Install a certificate →
   CA certificate.
 
 ### 8. Use it
 
-1. Open `https://192.168.2.1:8443/admin` on the Mac (or any device).
+1. Open `https://<mac-address>:8443/admin` on the Mac (or any device).
    On first use, type a class name and click **Create & track**.
-2. Scanning devices open `https://192.168.2.1:8443/` — the scanner page shows
+2. Scanning devices open `https://<mac-address>:8443/` — the scanner page shows
    which class it is currently tracking for.
 3. Scan student QR codes. Accepted scans appear on the dashboard instantly;
    repeat scans by the same student that day are flagged as duplicates.
@@ -271,16 +296,24 @@ Troubleshooting:
 - **`conda: command not found`** → conda isn't initialized in that shell; run
   `source ~/miniforge3/etc/profile.d/conda.sh` (or `conda init` once and
   restart the terminal).
-- **Hotspot not visible to phones** → System Settings → Sharing → make sure
-  Internet Sharing is actually toggled on (the settings stick, but the toggle
-  silently turns off after some macOS updates); check with
-  `ipconfig getifaddr bridge100`.
-- **Devices connect but page won't load** → the phone is on the hotspot
-  (not cellular or another Wi-Fi), and the Mac firewall allows Python
-  (step 6). If the Mac can load `https://192.168.2.1:8443` but phones can't,
-  it's the firewall.
-- **Phones can't open the page** → check the device is on the hotspot, the
-  Mac firewall allows Python, and the CA was trusted (step 7).
+- **Mac's Internet Sharing is "on" but no network appears** → on macOS 26/27
+  the old Internet Sharing stack has been reworked and often silently fails
+  (toggle on, no `bridge100`, no daemon — `launchctl print
+  system/com.apple.InternetSharing` says the service doesn't exist). This is
+  an OS-level regression, not a config problem: use the iPhone Personal
+  Hotspot topology instead (step 3, Option A). On older macOS: reboot and
+  re-enable, set channel 11 (2.4 GHz), and toggle the Mac's Wi-Fi off/on
+  after enabling.
+- **Mac's IP changed (iPhone hotspot)** → the hotspot DHCP pool shifts with
+  join order; the Mac must join **first** to keep `172.20.10.2`. If it got a
+  different address, either regenerate the certs with the new IP (step 4) or
+  use the Mac's `.local` name in Safari on iOS/macOS.
+- **Devices connect but page won't load** → the device is on the classroom
+  network (not cellular or another Wi-Fi), and the Mac firewall allows
+  Python (step 6). If the Mac loads the page but phones can't, it's the
+  firewall.
+- **Phones can't open the page** → check the device is on the classroom
+  network, the Mac firewall allows Python, and the CA was trusted (step 7).
 - **Certificate warning in Safari on the Mac** → also install and trust
   `ca.crt` on the Mac, or visit `https://localhost:8443` and accept the
   exception.

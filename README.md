@@ -62,7 +62,7 @@ server needs **no internet** — any isolated LAN works. Two options:
    setup the Mac is `172.20.10.6`:
 
    ```bash
-   ipconfig getifaddr en0     # → 172.20.10.6 on this Mac (en1 on some Macs)
+   ipconfig getifaddr en3     # → 172.20.10.6 on this Mac (en1 on some Macs)
    ```
 
    > Don't assume the address — always confirm with this command after

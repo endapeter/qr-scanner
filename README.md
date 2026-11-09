@@ -56,20 +56,38 @@ directly — no router, no campus Wi-Fi, and the Mac's IP never changes.
 
 1. System Settings → **Sharing** → **Internet Sharing**:
    - **Share your connection from**: pick whatever currently gives the Mac
-     internet (Ethernet, or Wi-Fi if the Mac is on Wi-Fi via a dongle)
-   - **To computers using**: check **Wi-Fi**, then click the ⓘ to set the
-     network name and password (use a name like `ATTENDANCE` and a strong
-     password — this network is open to anyone in radio range)
-2. Turn Internet Sharing **on** (macOS asks to confirm; it needs no reboot)
-3. Verify the Mac's address on the new network:
+     internet (Ethernet, or a tethered phone). The source is irrelevant to
+     the attendance server — it needs **no internet at all** — macOS just
+     requires *something* be selected. A tethered phone as a dummy source is
+     fine and the server will never touch it.
+   - **To computers using**: check **Wi-Fi**, then click the ⓘ:
+     - Network name: e.g. `ATTENDANCE` (visible to anyone in radio range)
+     - Security: **WPA2**, strong password
+     - **Channel: 11** (2.4 GHz). The default is often a 5 GHz channel,
+       which many devices don't list and which has worse range — this is
+       the #1 cause of "sharing is on but no device sees the network".
+2. Turn Internet Sharing **on** (macOS asks to confirm)
+3. **Turn the Mac's Wi-Fi off and back on** after enabling — the network
+   only starts broadcasting reliably after this radio reset. Also make sure
+   the Mac's Wi-Fi is not joined to any other network while hosting, or it
+   may drop the hotspot to rejoin.
+4. Verify the Mac's address on the new network:
 
    ```bash
+   ifconfig bridge100        # must exist with inet 192.168.2.1
    ipconfig getifaddr bridge100
    ```
 
-   This prints the Mac's IP on the hotspot — it is **`192.168.2.1`** on
-   virtually every Mac (Internet Sharing always hands the gateway that
-   address). Devices that join get `192.168.2.x` from the Mac.
+   If `ifconfig bridge100` says the interface doesn't exist, the toggle is
+   lying: **reboot the Mac and re-enable Internet Sharing** (macOS updates
+   leave the sharing daemon in a broken half-state that only a restart
+   clears). If the interface exists but devices still can't see the
+   network: toggle Internet Sharing off, wait 5 s, on again — and re-check
+   the channel is 2.4 GHz.
+
+   The Mac's IP on the hotspot is **`192.168.2.1`** on virtually every Mac
+   (Internet Sharing always hands the gateway that address). Devices that
+   join get `192.168.2.x` from the Mac.
 
 > If your Mac shows a different address, use that value everywhere below
 > instead of `192.168.2.1`.
@@ -77,10 +95,9 @@ directly — no router, no campus Wi-Fi, and the Mac's IP never changes.
 Joining devices: phones scan for Wi-Fi as usual and pick your network —
 once they're on it, they can reach the Mac at `https://192.168.2.1:8443`.
 
-> No internet on the Mac (offline classroom)? Internet Sharing still works
-> without an uplink on recent macOS versions — leave "share from" set to any
-> interface and turn it on; the Mac will still run the hotspot and the
-> attendance server needs no internet at all.
+> No internet on the Mac (offline classroom)? Fine — the whole attendance
+> system runs on the Mac and needs no internet. Internet Sharing only needs
+> a source *selected*; the server and devices never use the uplink.
 
 ### 4. Generate TLS certificates
 
@@ -271,10 +288,11 @@ Troubleshooting:
 - **`conda: command not found`** → conda isn't initialized in that shell; run
   `source ~/miniforge3/etc/profile.d/conda.sh` (or `conda init` once and
   restart the terminal).
-- **Hotspot not visible to phones** → System Settings → Sharing → make sure
-  Internet Sharing is actually toggled on (the settings stick, but the toggle
-  silently turns off after some macOS updates); check with
-  `ipconfig getifaddr bridge100`.
+- **Hotspot not visible to phones** → first check the AP actually started:
+  `ifconfig bridge100` — no output means Internet Sharing is lying about
+  being on: reboot and re-enable. If it exists: channel must be 2.4 GHz
+  (11), turn Mac Wi-Fi off/on after enabling, and make sure the Mac isn't
+  joined to another Wi-Fi network.
 - **Devices connect but page won't load** → the phone is on the hotspot
   (not cellular or another Wi-Fi), and the Mac firewall allows Python
   (step 6). If the Mac can load `https://192.168.2.1:8443` but phones can't,

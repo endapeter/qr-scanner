@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 	<title>Attendance Scanner</title>
 
 	<style>
@@ -16,49 +16,38 @@
 			font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
 		}
 
-		/* Make box-sizing global to avoid overflow issues */
 		*, *::before, *::after { box-sizing: border-box; }
 
+		/* Full-height flex column: preview card grows to fit, result card
+		   fills exactly the remaining viewport height — no page scrolling. */
 		html,body{height:100%;margin:0;background:var(--bg);}
-
-		/* container is fluid and vertical: preview on top, panels below */
-		.container{
-			width: calc(100% - 2rem);
-			max-width: 960px;
-			margin: 1rem auto;
-			padding: 1rem;
+		.page{
+			height:100%;
+			max-width:960px;
+			margin:0 auto;
+			padding:1rem;
 			display:flex;
 			flex-direction:column;
 			gap:1rem;
 		}
 
-		.left, .right{
+		.card{
 			background:var(--card);
 			border-radius:12px;
 			box-shadow:0 6px 18px rgba(15,23,42,0.06);
 			padding:1rem;
 		}
 
-		/* left is the preview area, full width */
-		.left{width:100%;}
-
-		/* right is the area below the preview, full width — same padding as
-		   .left so the panels align; no extra inset on the content */
-		.right{width:100%;display:flex;flex-direction:column;gap:1rem;}
-
 		h1{font-size:1.25rem;margin:0 0 0.5rem 0;color:#0f172a;}
-		#tracking-banner{
-			font-size:.85rem;color:var(--muted);margin-bottom:.75rem;
-		}
+		#tracking-banner{font-size:.85rem;color:var(--muted);margin-bottom:.75rem;}
 		#tracking-banner strong{color:var(--accent);}
+
 		.controls{display:flex;gap:.5rem;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;}
 		select, button{
 			padding:.5rem .75rem;border-radius:8px;border:1px solid #e6eefc;background:white;
 			font-size:.95rem;
 		}
-		button{
-			background:var(--accent);color:white;border:0;cursor:pointer;
-		}
+		button{background:var(--accent);color:white;border:0;cursor:pointer;}
 		button.secondary{background:transparent;color:var(--accent);border:1px solid rgba(37,99,235,0.12);}
 
 		#reader{
@@ -73,48 +62,79 @@
 			color:#9aa6bf;
 			position:relative;
 		}
-
-		/* Ensure the internal video/canvas keep aspect and fill the square */
 		#reader video, #reader canvas {
 			width: 100% !important;
 			height: 100% !important;
 			object-fit: cover;
 		}
 
-		.panel-title{font-size:.85rem;color:var(--muted);margin-bottom:.35rem;}
-		.photo{
-			height:220px;
-			background:linear-gradient(180deg,#eef2ff,white);
-			border-radius:8px;
-			display:flex;
-			align-items:center;
-			justify-content:center;
-			overflow:hidden;
-			border:1px solid rgba(15,23,42,0.03);
-			width:100%;
-		}
-		.photo img{width:100%;height:100%;object-fit:cover;}
-		.info-card{background:linear-gradient(180deg,#fff,#fbfdff);padding:.75rem;border-radius:8px;border:1px solid rgba(15,23,42,0.03);width:100%;}
-		.firstname{font-weight:600;font-size:1.15rem;color:#0f172a;}
-		.status{font-size:.9rem;color:var(--muted);margin-top:.25rem;}
+		.status-line{font-size:.9rem;color:var(--muted);margin-top:.75rem;}
 		.duplicate{color:var(--danger);font-weight:600;}
 		.success-flash{box-shadow:0 8px 30px rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.12);}
 		.small-muted{font-size:.8rem;color:var(--muted);}
 
+		/* ---------------------------------------------------------------
+		 * Result card: photo on the left at a fixed aspect ratio (passport
+		 * photos are ~3.5:4.5), name fields on the right. The photo frame
+		 * keeps its size for every scan — only the image inside changes —
+		 * so nothing moves between scans.
+		 * --------------------------------------------------------------- */
+		.result{flex:1 1 auto; min-height:0; display:flex; padding:1rem;}
+		.result-body{flex:1 1 auto; min-width:0; min-height:0; display:flex; gap:1rem; align-items:stretch;}
+
+		.photo-frame{
+			/* Fixed frame, computed by JS to use the height left over after
+			   the preview card; identical from photo to photo. */
+			flex:0 0 auto;
+			align-self:center;
+			aspect-ratio: 35 / 45;             /* passport photo ratio */
+			max-height:100%;
+			max-width:45%;
+			border-radius:8px;
+			background:linear-gradient(180deg,#eef2ff,white);
+			border:1px solid rgba(15,23,42,0.03);
+			display:flex;
+			align-items:center;
+			justify-content:center;
+			overflow:hidden;
+		}
+		.photo-frame img{
+			/* contain, not cover: the FULL photo is always visible inside
+			   the frame, letterboxed — never cropped. */
+			width:100%; height:100%;
+			object-fit:contain;
+			display:block;
+		}
+
+		.person-info{
+			flex:1 1 auto;
+			min-width:0;
+			display:flex;
+			flex-direction:column;
+			justify-content:center;
+			gap:.35rem;
+			/* long names wrap instead of stretching the card */
+			overflow-wrap:anywhere;
+		}
+		.firstname{font-weight:600;font-size:1.15rem;color:#0f172a;line-height:1.25;}
+		.surname{font-size:1rem;color:#0f172a;line-height:1.3;}
+		.person-labels{font-size:.75rem;color:var(--muted);}
+
 		/* mobile friendly adjustments */
 		@media (max-width:720px){
-			.container{ padding:0.75rem; gap:0.75rem; }
+			.page{ padding:0.75rem; gap:0.75rem; }
 			h1{font-size:1rem;}
 			.controls{gap:.45rem;}
 			select, button{font-size:.9rem;padding:.45rem .6rem;}
-			.photo{height:200px;}
 		}
 
-		/* small screens very narrow */
 		@media (max-width:420px){
-			.container{ width: calc(100% - 1rem); padding:0.5rem; }
-			.photo{height:180px;}
+			.page{ padding:0.5rem; gap:0.5rem; }
+			h1{font-size:1rem;}
 			.firstname{font-size:1rem;}
+			.surname{font-size:.9rem;}
+			.result{padding:.75rem;}
+			.result-body{gap:.75rem;}
 		}
 	</style>
 
@@ -122,8 +142,10 @@
 </head>
 <body>
 
-	<div class="container">
-		<div class="left">
+	<div class="page">
+		<!-- Preview card: camera + controls. Everything above the result card
+		     sizes itself to content; the result card gets what's left. -->
+		<div class="card">
 			<h1>Attendance Scanner</h1>
 			<div id="tracking-banner">Tracking for: <strong id="active-class">…</strong></div>
 
@@ -136,24 +158,22 @@
 			<!-- #reader is a square (aspect-ratio) so the overlay never scales oddly -->
 			<div id="reader">Camera preview will appear here</div>
 
-			<div style="margin-top:.75rem;">
+			<div class="status-line">
 				<span class="small-muted">Status:</span> <span id="status" class="small-muted">Idle</span>
 			</div>
 		</div>
 
-		<!-- panels sit under the preview -->
-		<div class="right">
-			<div class="info-card">
-				<div class="panel-title">Photo</div>
-				<div id="photo-panel" class="photo">
+		<!-- Result card: photo left, name right; fills the remaining height
+		     of the screen without scrolling. -->
+		<div class="card result">
+			<div class="result-body">
+				<div id="photo-frame" class="photo-frame">
 					<span class="small-muted">No photo yet</span>
 				</div>
-			</div>
-
-			<div class="info-card">
-				<div class="panel-title">First Name</div>
-				<div id="firstname-panel" class="firstname">—</div>
-				<div class="status">Surname: <span id="surname">—</span></div>
+				<div class="person-info">
+					<div><span class="person-labels">First name</span><div id="firstname-panel" class="firstname">—</div></div>
+					<div><span class="person-labels">Surname</span><div id="surname-panel" class="surname">—</div></div>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -163,9 +183,9 @@
 
 		const serverUrl = "/log";
 
-		const photoPanel = document.getElementById('photo-panel');
+		const photoFrame = document.getElementById('photo-frame');
 		const firstnamePanel = document.getElementById('firstname-panel');
-		const surnameSpan = document.getElementById('surname');
+		const surnamePanel = document.getElementById('surname-panel');
 		const statusSpan = document.getElementById('status');
 		const activeClassSpan = document.getElementById('active-class');
 		const startBtn = document.getElementById('start-btn');
@@ -178,9 +198,36 @@
 		let scanning = false;
 
 		/* ---------------------------------------------------------------
+		 * Photo frame sizing: the frame must be identical for every photo
+		 * so nothing shifts between scans. We compute it once from the
+		 * height left over in the viewport after the preview card, then
+		 * freeze it. The frame is the largest passport-ratio box (35:45)
+		 * that fits: (leftover height) tall and at most 45% of the card
+		 * width — whichever binds first.
+		 * --------------------------------------------------------------- */
+		function sizePhotoFrame(){
+			const frame = photoFrame;
+			frame.style.width = '';
+			frame.style.height = '';
+
+			const bodyH = frame.parentElement.clientHeight;   // inner height of result-body
+			if(bodyH > 0){
+				const h = Math.floor(bodyH);
+				const w = Math.floor(h * 35 / 45);
+				frame.style.width = w + 'px';
+				frame.style.height = h + 'px';
+			}
+		}
+		window.addEventListener('load', sizePhotoFrame);
+		window.addEventListener('resize', sizePhotoFrame);
+		window.addEventListener('orientationchange', () => setTimeout(sizePhotoFrame, 200));
+		if(document.fonts && document.fonts.ready){ document.fonts.ready.then(sizePhotoFrame); }
+		document.addEventListener('visibilitychange', () => {
+			if(!document.hidden) sizePhotoFrame();
+		});
+
+		/* ---------------------------------------------------------------
 		 * Active class: which class the server is currently tracking for.
-		 * Poll occasionally so a class switch on the admin dashboard is
-		 * picked up without a page reload.
 		 * --------------------------------------------------------------- */
 		async function refreshActiveClass(){
 			try{
@@ -238,22 +285,22 @@
 			}
 		}
 
-		/* Load photo into the photo panel by passport_picture filename */
+		/* Load photo into the fixed frame by passport_picture filename.
+		 * object-fit:contain in CSS guarantees the full photo is visible. */
 		function setPhotoFromPassport(filename){
 			if(!filename){
-				photoPanel.innerHTML = '<span class="small-muted">No photo available</span>';
+				photoFrame.innerHTML = '<span class="small-muted">No photo available</span>';
 				return;
 			}
-			photoPanel.innerHTML = '<span class="small-muted">Searching photo...</span>';
 			const path = `/public/photos/${encodeURIComponent(filename)}`;
 			fetch(path, {method: 'HEAD'}).then(resp => {
 				if(resp.ok){
-					photoPanel.innerHTML = `<img src="${path}" alt="passport">`;
+					photoFrame.innerHTML = `<img src="${path}" alt="passport">`;
 				} else {
-					photoPanel.innerHTML = '<span class="small-muted">Photo not found</span>';
+					photoFrame.innerHTML = '<span class="small-muted">Photo not found</span>';
 				}
 			}).catch(() => {
-				photoPanel.innerHTML = '<span class="small-muted">Photo not found</span>';
+				photoFrame.innerHTML = '<span class="small-muted">Photo not found</span>';
 			});
 		}
 
@@ -271,7 +318,7 @@
 
 			// Show the person immediately; the server remains authoritative.
 			firstnamePanel.textContent = entryObj.first_name || "N/A";
-			surnameSpan.textContent = entryObj.surname || "N/A";
+			surnamePanel.textContent = entryObj.surname || "N/A";
 			setPhotoFromPassport(entryObj.passport_picture);
 			readerDiv.classList.add('success-flash');
 			setTimeout(() => readerDiv.classList.remove('success-flash'), 350);

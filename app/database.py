@@ -8,6 +8,7 @@ CSVs on disk are always ready for download.
 from __future__ import annotations
 
 import csv
+import io
 import re
 import sqlite3
 from contextlib import suppress
@@ -256,6 +257,54 @@ def csv_files_info() -> dict[str, Any]:
         "database": str(Config.DATABASE_PATH),
         "files": files,
     }
+
+
+# ---------------------------------------------------------------------------
+# Per-day attendance (generated from the database on demand)
+# ---------------------------------------------------------------------------
+
+def class_days(class_name: str | None = None) -> list[dict[str, Any]]:
+    """One row per (class, day) that has scans: date, count, first/last scan.
+
+    With class_name, only that class is listed; otherwise every class.
+    """
+    if class_name:
+        rows = get_db().execute(
+            """
+            SELECT class, substr(timestamp, 1, 10) AS day,
+                   COUNT(*) AS count, MIN(timestamp) AS first_scan, MAX(timestamp) AS last_scan
+            FROM scans WHERE class = ?
+            GROUP BY class, day ORDER BY day DESC
+            """,
+            (class_name,),
+        )
+    else:
+        rows = get_db().execute(
+            """
+            SELECT class, substr(timestamp, 1, 10) AS day,
+                   COUNT(*) AS count, MIN(timestamp) AS first_scan, MAX(timestamp) AS last_scan
+            FROM scans GROUP BY class, day ORDER BY class, day DESC
+            """
+        )
+    return [dict(row) for row in rows]
+
+
+def day_csv(class_name: str, day: str) -> str | None:
+    """CSV text for one class on one day (YYYY-MM-DD). None if no scans."""
+    rows = get_db().execute(
+        "SELECT * FROM scans WHERE class = ? AND substr(timestamp, 1, 10) = ? "
+        "ORDER BY timestamp",
+        (class_name, day),
+    ).fetchall()
+    if not rows:
+        return None
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(Config.CSV_HEADER)
+    for row in rows:
+        writer.writerow([row[column] for column in Config.CSV_HEADER])
+    return buf.getvalue()
 
 
 def _count_rows(path: Path) -> int:

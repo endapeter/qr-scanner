@@ -201,6 +201,10 @@ Devices must first join the classroom network (step 3), then browse to
 - Each class also gets a live-updated CSV at `data/csv/<class>.csv`, ready to
   download or grab straight from Finder. Columns:
   `timestamp, class, first_name, surname, other_names, student_id, student_year, passport_picture`
+- The dashboard's **Daily attendance** section lists each day per class
+  (scan count, first/last scan time) with a **Download** button that exports
+  just that day's attendance as `<class>_<date>.csv` — generated from the
+  database on demand, so past days stay accurate even after edits.
 - The admin dashboard's **Scan archive** section lists every CSV with its row
   count, size and last-modified time, and displays the absolute directory
   path on the server.

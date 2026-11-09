@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hmac
 import queue
+import re
 from typing import Any
 
 from flask import (
@@ -186,6 +187,33 @@ def api_download_csv(slug: str):
     if not csv_path.exists():
         return jsonify({"error": f"No CSV found for {slug!r}"}), 404
     return send_file(csv_path, as_attachment=True, download_name=csv_path.name)
+
+
+@bp.get("/api/days")
+def api_days():
+    """Days with recorded attendance. ?class=NAME narrows to one class."""
+    class_name = request.args.get("class") or None
+    return jsonify(database.class_days(class_name))
+
+
+@bp.get("/api/days/<path:class_name>/<day>/download")
+def api_download_day_csv(class_name: str, day: str):
+    """Download the CSV for one class on one day (YYYY-MM-DD).
+
+    Generated from the database on demand; day files are not kept on disk.
+    """
+    day = day.strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day or ""):
+        return jsonify({"error": "Day must be YYYY-MM-DD"}), 400
+    content = database.day_csv(class_name, day)
+    if content is None:
+        return jsonify({"error": f"No scans for {class_name!r} on {day}"}), 404
+    download_name = f"{database.class_slug(class_name)}_{day}.csv"
+    return Response(
+        content,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
+    )
 
 
 @bp.get("/api/stream")

@@ -112,6 +112,17 @@ def logout():
 # Admin API
 # ---------------------------------------------------------------------------
 
+@bp.get("/api/scans")
+def api_recent_scans():
+    """Recent scans as JSON — admin only (student PII). ?class=NAME, ?limit=N."""
+    class_name = request.args.get("class")
+    try:
+        limit = min(int(request.args.get("limit", 500)), 5000)
+    except ValueError:
+        limit = 500
+    return jsonify(database.recent_scans(class_name, limit))
+
+
 @bp.get("/api/classes")
 def api_classes():
     return jsonify(

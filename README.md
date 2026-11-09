@@ -138,6 +138,9 @@ DNS.1 = localhost
 DNS.2 = ${LOCAL_NAME}
 EOF
 
+# (The mDNS name is what saves you when the IP later changes —
+#  see "Troubleshooting: the Mac's IP changed" near the end of this README.)
+
 # 4) Sign the server certificate with your CA
 openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
     -out server.crt -days 365 -sha256 -extfile san.cnf -extensions v3_req
@@ -308,10 +311,9 @@ Troubleshooting:
   Hotspot topology instead (step 3, Option A). On older macOS: reboot and
   re-enable, set channel 11 (2.4 GHz), and toggle the Mac's Wi-Fi off/on
   after enabling.
-- **Mac's IP changed (iPhone hotspot)** → the hotspot DHCP pool shifts with
-  join order; the Mac must join **first** to keep `172.20.10.2`. If it got a
-  different address, either regenerate the certs with the new IP (step 4) or
-  use the Mac's `.local` name in Safari on iOS/macOS.
+- **Certificate error on devices but the Mac loads the page fine** → almost
+  always the Mac's IP changed since the cert was generated. Full diagnosis:
+  see **"Troubleshooting: the Mac's IP changed"** below.
 - **Devices connect but page won't load** → the device is on the classroom
   network (not cellular or another Wi-Fi), and the Mac firewall allows
   Python (step 6). If the Mac loads the page but phones can't, it's the
@@ -323,3 +325,63 @@ Troubleshooting:
   exception.
 - **Dashboard says "No class is being tracked"** → pick a class on the admin
   dashboard; scanner devices pick this up within seconds.
+
+## Troubleshooting: the Mac's IP changed
+
+The most common failure after "it worked yesterday": the Mac's address on
+the classroom network is different from the one baked into the TLS
+certificate, so phones get a certificate error and the page won't load.
+Devices that joined in a different order, a restarted hotspot, or a
+different source network can all shift the DHCP assignment.
+
+**What it looks like:** Safari/Chrome on the *device* shows a certificate
+warning ("this server's identity cannot be verified") or refuses to connect
+— but the Mac itself loads the page fine at the same URL. It is *not* the
+usual untrusted-CA warning you saw on first setup: you already trusted the
+CA, and it's now complaining about the *name* on the certificate.
+
+**Step 1 — check what IP the Mac has now:**
+
+```bash
+ipconfig getifaddr en0        # Wi-Fi (use en1 if your Mac uses that for Wi-Fi)
+```
+
+Compare with the `SERVER_IP` you used in step 4. On the iPhone hotspot the
+Mac is normally `172.20.10.2`; on a Mac-generated hotspot, `192.168.2.1`.
+
+**Step 2 — confirm the cert is the problem:**
+
+```bash
+# On the Mac — what names/IPs is the cert actually valid for?
+openssl x509 -in certs/server.crt -noout -text | grep -A2 "Subject Alternative Name"
+```
+
+If the IP printed by `ipconfig getifaddr` is **not** in that list, the
+certificate is stale. (This command is also the fastest way to verify a
+freshly generated cert before handing phones to students.)
+
+**Step 3 — pick a fix:**
+
+1. **Easiest, no tools:** browse to the Mac's **`.local` name** instead of
+   the IP — `https://Johns-MacBook.local:8443` — on Safari (iOS/macOS). The
+   cert already includes the Mac's `.local` name (step 4 puts it in the
+   SAN), and mDNS resolves to whatever the current IP is, so it survives
+   address changes with no work at all. *Caveat:* Android Chrome often
+   can't resolve `.local` names — use this for Apple devices.
+2. **Regenerate the cert for the new IP** (step 4, ~1 minute): set
+   `SERVER_IP` to today's address, re-run the two openssl commands and the
+   sign command, restart `python run.py`. Existing CA-trust on the phones
+   stays valid — you're only re-issuing the *server* certificate, not the
+   CA — so no phone reconfiguration is needed.
+3. **Prevent it instead:** make the Mac rejoin the hotspot **first** every
+   time (it reliably gets `172.20.10.2` as the first client), or switch the
+   whole flow to `.local` URLs on Apple devices.
+
+**Step 4 — if it's NOT the cert**, walk this chain in order:
+
+| Symptom | Likely cause | Check |
+|---|---|---|
+| Mac itself can't load `https://<ip>:8443` | server not running | `ps aux \| grep run.py`; start it |
+| Mac loads via `127.0.0.1` but not its LAN IP | server bound to wrong host | restart with default `QR_HOST` (`0.0.0.0`) |
+| Mac loads fine, device times out (no cert warning at all) | firewall or wrong network | device is on the classroom Wi-Fi? firewall allows Python? (step 6) |
+| Device gets cert warning but IP matches the cert | the device trusted a *different/old* CA | re-download `https://<ip>:8443/ca.crt` on that device (step 7) |

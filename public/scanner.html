@@ -42,8 +42,9 @@
 		/* left is the preview area, full width */
 		.left{width:100%;}
 
-		/* right is the area below the preview, full width */
-		.right{width:100%;display:flex;flex-direction:column;gap:1rem;padding-top:0.75rem;}
+		/* right is the area below the preview, full width — same padding as
+		   .left so the panels align; no extra inset on the content */
+		.right{width:100%;display:flex;flex-direction:column;gap:1rem;}
 
 		h1{font-size:1.25rem;margin:0 0 0.5rem 0;color:#0f172a;}
 		#tracking-banner{

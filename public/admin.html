@@ -138,9 +138,34 @@
 			</div>
 		</section>
 
+		<!-- Daily attendance -->
+		<section class="card">
+			<h2>Daily attendance</h2>
+			<div class="hint">
+				Each day's attendance per class, generated from the database on demand —
+				click a day to download just that day's CSV.
+			</div>
+			<div class="row" style="margin-bottom:.5rem;">
+				<label class="panel-title" for="days-class" style="margin:0;">Show class:</label>
+				<select id="days-class"><option value="">Loading…</option></select>
+			</div>
+			<div class="scroll-area">
+				<table>
+					<thead>
+						<tr><th>Class</th><th>Date</th><th>Scans</th><th class="hide-mobile">First → last</th><th></th></tr>
+					</thead>
+					<tbody id="days-table"><tr><td colspan="5" style="color:var(--muted)">No days recorded yet.</td></tr></tbody>
+				</table>
+			</div>
+		</section>
+
 		<!-- CSV archive -->
 		<section class="card">
 			<h2>Scan archive (CSV)</h2>
+			<div class="hint">
+				Every scan is stored in the scanning database (SQLite) and exported to one CSV per class
+				in this directory on the server:
+			</div>
 			<div class="hint">
 				Every scan is stored in the scanning database (SQLite) and exported to one CSV per class
 				in this directory on the server:
@@ -186,6 +211,7 @@
 			classes: [],          // [{name, slug, scan_count, last_scan, created_at}]
 			activeClass: null,
 			viewClass: 'all',     // 'all' or a class name
+			daysClass: 'all',     // 'all' or a class name (daily attendance section)
 		};
 
 		/* ---------------- helpers ---------------- */
@@ -239,6 +265,16 @@
 				state.classes.map(c =>
 					`<option value="${escapeHtml(c.name)}" ${c.name === state.viewClass ? 'selected' : ''}>
 					 ${escapeHtml(c.name)}</option>`).join('');
+
+			// daily-attendance selector: "all" + every class
+			const daysSel = $('days-class');
+			if(daysSel){
+				daysSel.innerHTML =
+					'<option value="all">All classes</option>' +
+					state.classes.map(c =>
+						`<option value="${escapeHtml(c.name)}" ${c.name === state.daysClass ? 'selected' : ''}>
+						 ${escapeHtml(c.name)}</option>`).join('');
+			}
 			// keep a valid selection if the current view class vanished
 			if(state.viewClass !== 'all' && !state.classes.some(c => c.name === state.viewClass)){
 				state.viewClass = 'all';
@@ -347,6 +383,34 @@
 			$('stat-total').textContent = total;
 		}
 
+		/* ---------------- daily attendance ---------------- */
+
+		async function loadDays(){
+			const url = state.daysClass === 'all'
+				? '/api/days'
+				: `/api/days?class=${encodeURIComponent(state.daysClass)}`;
+			const days = await api(url);
+
+			const tbody = $('days-table');
+			if(!days.length){
+				tbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted)">No days recorded yet.</td></tr>';
+				return;
+			}
+			tbody.innerHTML = '';
+			for(const d of days){
+				const tr = document.createElement('tr');
+				const first = (d.first_scan || '').slice(11);
+				const last = (d.last_scan || '').slice(11);
+				tr.innerHTML =
+					`<td>${escapeHtml(d.class)}</td>` +
+					`<td>${escapeHtml(d.day)}</td>` +
+					`<td>${d.count}</td>` +
+					`<td class="hide-mobile">${escapeHtml(first)} → ${escapeHtml(last)}</td>` +
+					`<td><a href="/api/days/${encodeURIComponent(d.class)}/${d.day}/download">Download</a></td>`;
+				tbody.appendChild(tr);
+			}
+		}
+
 		/* ---------------- CSV archive ---------------- */
 
 		async function loadCsv(){
@@ -392,6 +456,11 @@
 		$('view-class').addEventListener('change', ev => {
 			state.viewClass = ev.target.value;
 			loadScans().catch(err => toast(err.message));
+		});
+
+		$('days-class').addEventListener('change', ev => {
+			state.daysClass = ev.target.value;
+			loadDays().catch(err => toast(err.message));
 		});
 
 		$('copy-path-btn').addEventListener('click', async () => {
@@ -450,6 +519,7 @@
 			try{
 				await loadClasses();
 				await loadScans();
+				await loadDays();
 				await loadCsv();
 			}catch(err){
 				console.error(err);
@@ -461,7 +531,7 @@
 		connectStream();
 		// periodic refresh keeps counts and the CSV table honest even if an
 		// SSE message is dropped by a flaky wireless link.
-		setInterval(() => { loadScans().catch(() => {}); loadCsv().catch(() => {}); }, 30000);
+		setInterval(() => { loadScans().catch(() => {}); loadDays().catch(() => {}); loadCsv().catch(() => {}); }, 30000);
 	</script>
 </body>
 </html>

@@ -58,21 +58,25 @@ server needs **no internet** — any isolated LAN works. Two options:
 
 1. On the iPhone: Settings → **Personal Hotspot** → *Allow Others to Join*
    → set a strong Wi-Fi password
-2. **Join the Mac to the hotspot first** — the first client reliably gets
-   `172.20.10.2` — then verify:
+2. **Join the Mac to the hotspot first**, then verify its address — on this
+   setup the Mac is `172.20.10.6`:
 
    ```bash
-   ipconfig getifaddr en0     # → 172.20.10.2 (or en1 on some Macs)
+   ipconfig getifaddr en0     # → 172.20.10.6 on this Mac (en1 on some Macs)
    ```
 
+   > Don't assume the address — always confirm with this command after
+   > joining. The hotspot's DHCP pool (`172.20.10.1`–`.14`) shifts with
+   > join order and which clients are already connected.
+
 3. Join every scanning device to the same hotspot
-4. Devices reach the Mac at `https://172.20.10.2:8443` (use whatever the
+4. Devices reach the Mac at `https://172.20.10.6:8443` (use whatever the
    command above printed)
 
 > The cellular uplink is irrelevant — the hotspot is just an access point
 > for the LAN. If the IP ever changes (different join order), regenerate the
-> certs with the new IP (step 4) — or keep using the same phone + join order,
-> which keeps the address stable.
+> certs with the new IP (step 4) — or use the Mac's `.local` name, which
+> follows the IP automatically (see the IP-changed troubleshooting section).
 
 **Option B — Mac generates the network (Internet Sharing)**
 
@@ -105,12 +109,12 @@ Set two variables first:
 
 ```bash
 # The Mac's address on the classroom network — from step 3:
-#   Option A (iPhone hotspot): SERVER_IP=172.20.10.2   # what ipconfig getifaddr en0 printed
+#   Option A (iPhone hotspot): SERVER_IP=172.20.10.6   # what ipconfig getifaddr en0 printed
 #   Option B (Mac hotspot):    SERVER_IP=192.168.2.1
-SERVER_IP=172.20.10.2
+SERVER_IP=172.20.10.6
 
 # The Mac's mDNS name (survives IP changes; works in Safari on iOS and macOS):
-LOCAL_NAME=$(hostname)        # e.g. Johns-MacBook.local
+LOCAL_NAME=$(hostname)        # e.g. huangbook.local
 ```
 
 ```bash
@@ -160,9 +164,9 @@ python run.py
 You'll see the data locations, URLs, and whether admin auth is on. The server
 listens on `https://0.0.0.0:8443` (change with the `QR_PORT` / `QR_HOST`
 environment variables). On devices, use the Mac's address from step 3 —
-e.g. `https://172.20.10.2:8443` (iPhone hotspot) or
+e.g. `https://172.20.10.6:8443` (iPhone hotspot) or
 `https://192.168.2.1:8443` (Mac hotspot). On the Mac itself, the mDNS name
-from step 4 also works: `https://<mac-name>.local:8443`.
+from step 4 also works: `https://huangbook.local:8443`.
 
 ### 6. Open the firewall
 
@@ -347,7 +351,9 @@ ipconfig getifaddr en0        # Wi-Fi (use en1 if your Mac uses that for Wi-Fi)
 ```
 
 Compare with the `SERVER_IP` you used in step 4. On the iPhone hotspot the
-Mac is normally `172.20.10.2`; on a Mac-generated hotspot, `192.168.2.1`.
+Mac is normally `172.20.10.6`; on a Mac-generated hotspot, `192.168.2.1`.
+If it differs (say the hotspot handed out `172.20.10.9`), that's your
+answer — the cert is stale.
 
 **Step 2 — confirm the cert is the problem:**
 
@@ -363,7 +369,7 @@ freshly generated cert before handing phones to students.)
 **Step 3 — pick a fix:**
 
 1. **Easiest, no tools:** browse to the Mac's **`.local` name** instead of
-   the IP — `https://Johns-MacBook.local:8443` — on Safari (iOS/macOS). The
+   the IP — `https://huangbook.local:8443` — on Safari (iOS/macOS). The
    cert already includes the Mac's `.local` name (step 4 puts it in the
    SAN), and mDNS resolves to whatever the current IP is, so it survives
    address changes with no work at all. *Caveat:* Android Chrome often
@@ -373,8 +379,8 @@ freshly generated cert before handing phones to students.)
    sign command, restart `python run.py`. Existing CA-trust on the phones
    stays valid — you're only re-issuing the *server* certificate, not the
    CA — so no phone reconfiguration is needed.
-3. **Prevent it instead:** make the Mac rejoin the hotspot **first** every
-   time (it reliably gets `172.20.10.2` as the first client), or switch the
+3. **Prevent it instead:** make the Mac join the hotspot **first** every
+   time (consistent join order keeps its address stable), or switch the
    whole flow to `.local` URLs on Apple devices.
 
 **Step 4 — if it's NOT the cert**, walk this chain in order:

@@ -74,6 +74,10 @@
 		}
 		.dirpath button{background:#334155;padding:.3rem .6rem;font-size:.75rem;flex-shrink:0;}
 		.hint{font-size:.8rem;color:var(--muted);margin:.4rem 0 .75rem 0;}
+		.danger{border:1px solid rgba(239,68,68,.25);}
+		.danger h2{color:#b91c1c;}
+		button.destructive{background:var(--danger);}
+		button.destructive:hover{background:#dc2626;}
 
 		.toast{
 			position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);
@@ -153,6 +157,23 @@
 				<tbody id="csv-table"><tr><td colspan="5" style="color:var(--muted)">No CSVs yet.</td></tr></tbody>
 			</table>
 		</section>
+
+		<!-- Danger zone -->
+		<section class="card danger">
+			<h2>Danger zone</h2>
+			<div class="hint">
+				Deleting a class removes its scans from the database <em>and</em> its CSV file —
+				there is no undo. Clearing the database removes <strong>all</strong> classes,
+				scans and CSVs.
+			</div>
+			<div class="row">
+				<select id="delete-class-select"><option value="">Loading…</option></select>
+				<button id="delete-class-btn" class="destructive">Delete class…</button>
+			</div>
+			<div class="row" style="margin-top:.5rem;">
+				<button id="clear-db-btn" class="destructive">Clear entire database…</button>
+			</div>
+		</section>
 	</div>
 
 	<div id="toast" class="toast"></div>
@@ -203,6 +224,13 @@
 			sel.innerHTML = state.classes.map(c =>
 				`<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)} (${c.scan_count})</option>`).join('')
 				|| '<option value="">(no classes yet)</option>';
+
+			// danger-zone delete selector
+			const del = $('delete-class-select');
+			del.innerHTML = state.classes.length
+				? state.classes.map(c =>
+					`<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)} — ${c.scan_count} scan(s)</option>`).join('')
+				: '<option value="">(no classes)</option>';
 
 			// view selector: "all" + every class
 			const view = $('view-class');
@@ -373,6 +401,49 @@
 			}catch(e){
 				toast('Copy failed — select the text manually');
 			}
+		});
+
+		/* ---------------- danger zone ---------------- */
+
+		$('delete-class-btn').addEventListener('click', async () => {
+			const name = $('delete-class-select').value;
+			if(!name){ toast('No class selected'); return; }
+			const count = (state.classes.find(c => c.name === name) || {}).scan_count || 0;
+			const typed = prompt(
+				`Delete class "${name}" and its ${count} scan(s)?\n` +
+				`This removes the database rows and the CSV file — no undo.\n\n` +
+				`Type DELETE to confirm:`);
+			if(typed === null) return;
+			if(typed !== 'DELETE'){ toast('Not confirmed — nothing deleted'); return; }
+			try{
+				const r = await api('/api/classes/delete', {
+					method: 'POST',
+					headers: {'Content-Type': 'application/json'},
+					body: JSON.stringify({name, confirm: 'DELETE'}),
+				});
+				toast(`Deleted "${name}" (${r.scans_removed} scan(s))`);
+				await refreshAll();
+			}catch(err){ toast(err.message); }
+		});
+
+		$('clear-db-btn').addEventListener('click', async () => {
+			const total = state.classes.reduce((s, c) => s + c.scan_count, 0);
+			if(!total){ toast('Database is already empty'); return; }
+			const typed = prompt(
+				`Clear the ENTIRE database — all ${state.classes.length} class(es), ` +
+				`${total} scan(s) and every CSV file? No undo.\n\n` +
+				`Type DELETE to confirm:`);
+			if(typed === null) return;
+			if(typed !== 'DELETE'){ toast('Not confirmed — nothing deleted'); return; }
+			try{
+				const r = await api('/api/database/clear', {
+					method: 'POST',
+					headers: {'Content-Type': 'application/json'},
+					body: JSON.stringify({confirm: 'DELETE'}),
+				});
+				toast(`Database cleared (${r.scans_removed} scan(s) removed)`);
+				await refreshAll();
+			}catch(err){ toast(err.message); }
 		});
 
 		async function refreshAll(){

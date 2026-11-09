@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import re
 import sqlite3
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -136,6 +137,42 @@ def list_classes() -> list[dict[str, Any]]:
         """
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def delete_class(name: str) -> int:
+    """Delete a class, all its scans and its CSV file. Returns scans removed."""
+    db = get_db()
+    removed = db.execute("SELECT COUNT(*) AS n FROM scans WHERE class = ?", (name,)).fetchone()["n"]
+    slug_row = db.execute("SELECT slug FROM classes WHERE name = ?", (name,)).fetchone()
+    db.execute("DELETE FROM scans WHERE class = ?", (name,))
+    db.execute("DELETE FROM classes WHERE name = ?", (name,))
+    if get_active_class() == name:
+        set_setting("active_class", "")
+    db.commit()
+
+    if slug_row:
+        with suppress(OSError):
+            csv_file_for_class(name).unlink()
+    return removed
+
+
+def clear_all_scans() -> int:
+    """Delete every scan, class and CSV file, and reset the active class.
+
+    The database file itself is kept (schema intact); this empties it.
+    Returns the number of scans removed.
+    """
+    db = get_db()
+    removed = db.execute("SELECT COUNT(*) AS n FROM scans").fetchone()["n"]
+    db.execute("DELETE FROM scans")
+    db.execute("DELETE FROM classes")
+    db.execute("DELETE FROM settings")
+    db.commit()
+
+    for path in Config.CSV_DIR.glob("*.csv"):
+        with suppress(OSError):
+            path.unlink()
+    return removed
 
 
 # ---------------------------------------------------------------------------

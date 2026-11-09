@@ -145,6 +145,33 @@ def api_set_active_class():
     return jsonify({"active_class": name})
 
 
+@bp.post("/api/classes/delete")
+def api_delete_class():
+    """Delete one class, all its scans and its CSV. POST + confirm word."""
+    data: Any = request.get_json(silent=True) or {}
+    name = str(data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Class name is required"}), 400
+    if data.get("confirm") != "DELETE":
+        return jsonify({"error": 'Send {"confirm": "DELETE"} to confirm'}), 400
+    if not any(c["name"] == name for c in database.list_classes()):
+        return jsonify({"error": f"No class named {name!r}"}), 404
+    removed = database.delete_class(name)
+    current_app.logger.warning("Class %r deleted (%d scans removed)", name, removed)
+    return jsonify({"deleted": name, "scans_removed": removed})
+
+
+@bp.post("/api/database/clear")
+def api_clear_database():
+    """Wipe every scan, class and CSV. POST + confirm word."""
+    data: Any = request.get_json(silent=True) or {}
+    if data.get("confirm") != "DELETE":
+        return jsonify({"error": 'Send {"confirm": "DELETE"} to confirm'}), 400
+    removed = database.clear_all_scans()
+    current_app.logger.warning("Database cleared (%d scans removed)", removed)
+    return jsonify({"cleared": True, "scans_removed": removed})
+
+
 @bp.get("/api/csv")
 def api_csv_files():
     """The scan archive: where the CSVs live and what is in them."""

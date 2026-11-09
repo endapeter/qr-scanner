@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Attendance — Admin Dashboard</title>
+
+	<style>
+		:root{
+			--bg: #f5f7fb;
+			--card: #ffffff;
+			--muted: #6b7280;
+			--accent: #2563eb;
+			--success: #10b981;
+			--warn: #f59e0b;
+			--danger: #ef4444;
+			--border: rgba(15,23,42,0.08);
+			font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+		}
+		*, *::before, *::after { box-sizing: border-box; }
+		html,body{margin:0;background:var(--bg);color:#0f172a;}
+
+		.wrap{max-width:960px;margin:1rem auto;padding:0 1rem;display:flex;flex-direction:column;gap:1rem;}
+
+		header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;}
+		h1{font-size:1.25rem;margin:0;}
+		.live-badge{font-size:.8rem;padding:.3rem .6rem;border-radius:999px;display:inline-flex;align-items:center;gap:.4rem;}
+		.live-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);}
+		.live-badge.live{background:rgba(16,185,129,.12);color:#047857;}
+		.live-badge.live .live-dot{background:var(--success);animation:pulse 1.5s infinite;}
+		.live-badge.offline{background:rgba(239,68,68,.12);color:#b91c1c;}
+		.live-badge.offline .live-dot{background:var(--danger);}
+		@keyframes pulse{0%{opacity:1}50%{opacity:.35}100%{opacity:1}}
+
+		.card{background:var(--card);border-radius:12px;box-shadow:0 6px 18px rgba(15,23,42,.06);padding:1rem;}
+		.card h2{font-size:1rem;margin:0 0 .75rem 0;}
+		.panel-title{font-size:.85rem;color:var(--muted);margin-bottom:.35rem;}
+
+		select, input[type=text], button{
+			padding:.5rem .75rem;border-radius:8px;border:1px solid #e6eefc;background:#fff;font-size:.95rem;
+		}
+		input[type=text]{flex:1;min-width:10rem;}
+		button{background:var(--accent);color:#fff;border:0;cursor:pointer;}
+		button.secondary{background:transparent;color:var(--accent);border:1px solid rgba(37,99,235,.15);}
+		button:disabled{opacity:.5;cursor:default;}
+		.row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;}
+
+		.tracking-status{font-size:.9rem;color:var(--muted);margin-top:.5rem;}
+		.tracking-status strong{color:var(--accent);}
+
+		.stats{display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:.75rem;}
+		.stat{background:linear-gradient(180deg,#fff,#fbfdff);border:1px solid var(--border);
+		      border-radius:8px;padding:.6rem .9rem;min-width:7rem;}
+		.stat .num{font-size:1.4rem;font-weight:600;}
+		.stat .lbl{font-size:.75rem;color:var(--muted);}
+
+		table{width:100%;border-collapse:collapse;font-size:.9rem;}
+		th{ text-align:left;font-weight:600;color:var(--muted);font-size:.75rem;
+		    text-transform:uppercase;letter-spacing:.04em;padding:.4rem .5rem;border-bottom:1px solid var(--border);}
+		td{padding:.45rem .5rem;border-bottom:1px solid var(--border);}
+		tr:last-child td{border-bottom:0;}
+
+		.scroll-area{max-height:22rem;overflow-y:auto;}
+
+		.status-pill{font-size:.75rem;padding:.15rem .5rem;border-radius:999px;}
+		.status-pill.recorded{background:rgba(16,185,129,.12);color:#047857;}
+		.status-pill.duplicate{background:rgba(245,158,11,.15);color:#b45309;}
+
+		.dirpath{
+			font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+			background:#0f172a;color:#e2e8f0;border-radius:8px;
+			padding:.6rem .75rem;font-size:.8rem;word-break:break-all;
+			display:flex;align-items:center;justify-content:space-between;gap:.75rem;
+		}
+		.dirpath button{background:#334155;padding:.3rem .6rem;font-size:.75rem;flex-shrink:0;}
+		.hint{font-size:.8rem;color:var(--muted);margin:.4rem 0 .75rem 0;}
+
+		.toast{
+			position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);
+			background:#0f172a;color:#fff;padding:.6rem 1rem;border-radius:8px;font-size:.85rem;
+			opacity:0;transition:opacity .25s;pointer-events:none;
+		}
+		.toast.show{opacity:1;}
+
+		@media (max-width:600px){
+			.hide-mobile{display:none;}
+			h1{font-size:1.05rem;}
+		}
+	</style>
+</head>
+<body>
+	<div class="wrap">
+		<header>
+			<h1>Attendance — Admin</h1>
+			<span class="row">
+				<span id="live-badge" class="live-badge offline"><span class="live-dot"></span><span id="live-text">connecting…</span></span>
+				<a href="/admin/logout" style="font-size:.8rem;color:var(--muted);">log out</a>
+			</span>
+		</header>
+
+		<!-- Class tracking -->
+		<section class="card">
+			<h2>Class tracking</h2>
+			<div class="panel-title">New scans (from every scanner device) are recorded against this class:</div>
+			<div class="row">
+				<select id="class-select"><option value="">Loading…</option></select>
+				<button id="use-class-btn" class="secondary">Track selected</button>
+			</div>
+			<div class="row" style="margin-top:.5rem;">
+				<input type="text" id="new-class-input" placeholder="…or type a new class name">
+				<button id="create-class-btn">Create &amp; track</button>
+			</div>
+			<div class="tracking-status">Currently tracking for: <strong id="active-class">…</strong></div>
+		</section>
+
+		<!-- Live attendance -->
+		<section class="card">
+			<h2>Live attendance</h2>
+			<div class="stats">
+				<div class="stat"><div class="num" id="stat-today">0</div><div class="lbl">today (view)</div></div>
+				<div class="stat"><div class="num" id="stat-total">0</div><div class="lbl">total (view)</div></div>
+			</div>
+			<div class="row" style="margin-bottom:.5rem;">
+				<label class="panel-title" for="view-class" style="margin:0;">View class:</label>
+				<select id="view-class"><option value="">Loading…</option></select>
+			</div>
+			<div class="scroll-area">
+				<table>
+					<thead>
+						<tr><th>Time</th><th>Name</th><th class="hide-mobile">Student ID</th><th>Status</th></tr>
+					</thead>
+					<tbody id="scan-table"><tr><td colspan="4" style="color:var(--muted)">No scans yet.</td></tr></tbody>
+				</table>
+			</div>
+		</section>
+
+		<!-- CSV archive -->
+		<section class="card">
+			<h2>Scan archive (CSV)</h2>
+			<div class="hint">
+				Every scan is stored in the scanning database (SQLite) and exported to one CSV per class
+				in this directory on the server:
+			</div>
+			<div class="dirpath">
+				<span id="csv-dir">…</span>
+				<button id="copy-path-btn">Copy path</button>
+			</div>
+			<div class="hint">SQLite database file: <span id="db-path" style="font-family:ui-monospace,Menlo,Consolas,monospace;">…</span></div>
+			<table>
+				<thead>
+					<tr><th>Class</th><th>Rows</th><th class="hide-mobile">Size</th><th class="hide-mobile">Last modified</th><th></th></tr>
+				</thead>
+				<tbody id="csv-table"><tr><td colspan="5" style="color:var(--muted)">No CSVs yet.</td></tr></tbody>
+			</table>
+		</section>
+	</div>
+
+	<div id="toast" class="toast"></div>
+
+	<script>
+		'use strict';
+
+		const $ = id => document.getElementById(id);
+		const state = {
+			classes: [],          // [{name, slug, scan_count, last_scan, created_at}]
+			activeClass: null,
+			viewClass: 'all',     // 'all' or a class name
+		};
+
+		/* ---------------- helpers ---------------- */
+
+		function toast(msg){
+			const t = $('toast');
+			t.textContent = msg;
+			t.classList.add('show');
+			setTimeout(() => t.classList.remove('show'), 2500);
+		}
+
+		function fmtBytes(n){
+			if (n < 1024) return `${n} B`;
+			if (n < 1024*1024) return `${(n/1024).toFixed(1)} KB`;
+			return `${(n/1024/1024).toFixed(1)} MB`;
+		}
+
+		function escapeHtml(s){
+			return String(s ?? '').replace(/[&<>"']/g,
+				c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+		}
+
+		async function api(url, opts){
+			const resp = await fetch(url, opts);
+			if(resp.status === 401){
+				location.href = '/admin/login';
+				throw new Error('unauthenticated');
+			}
+			if(!resp.ok) throw new Error(`${url} → HTTP ${resp.status}`);
+			return resp.json();
+		}
+
+		function populateClassSelects(){
+			// tracking selector: all known classes
+			const sel = $('class-select');
+			sel.innerHTML = state.classes.map(c =>
+				`<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)} (${c.scan_count})</option>`).join('')
+				|| '<option value="">(no classes yet)</option>';
+
+			// view selector: "all" + every class
+			const view = $('view-class');
+			view.innerHTML =
+				'<option value="all">All classes</option>' +
+				state.classes.map(c =>
+					`<option value="${escapeHtml(c.name)}" ${c.name === state.viewClass ? 'selected' : ''}>
+					 ${escapeHtml(c.name)}</option>`).join('');
+			// keep a valid selection if the current view class vanished
+			if(state.viewClass !== 'all' && !state.classes.some(c => c.name === state.viewClass)){
+				state.viewClass = 'all';
+				view.value = 'all';
+			}
+		}
+
+		async function loadClasses(){
+			const data = await api('/api/classes');
+			state.classes = data.classes || [];
+			state.activeClass = data.active_class || null;
+			populateClassSelects();
+			$('active-class').textContent = state.activeClass || '(none)';
+		}
+
+		async function setActiveClass(name){
+			await api('/api/classes', {
+				method: 'POST',
+				headers: {'Content-Type': 'application/json'},
+				body: JSON.stringify({name}),
+			});
+			await loadClasses();
+			toast(`Now tracking for "${name}"`);
+		}
+
+		/* ---------------- live feed ---------------- */
+
+		function renderRow(entry, type){
+			const tr = document.createElement('tr');
+			const name = [entry.first_name, entry.surname].filter(Boolean).join(' ') || entry.student_id || '?';
+			const status = type === 'duplicate'
+				? '<span class="status-pill duplicate">duplicate</span>'
+				: '<span class="status-pill recorded">recorded</span>';
+			tr.innerHTML =
+				`<td>${escapeHtml((entry.timestamp || '').slice(11) || '—')}</td>` +
+				`<td>${escapeHtml(name)}</td>` +
+				`<td class="hide-mobile">${escapeHtml(entry.student_id || '—')}</td>` +
+				`<td>${status}</td>`;
+			return tr;
+		}
+
+		function prependScan(entry, type){
+			if(state.viewClass !== 'all' && entry.class !== state.viewClass) return;
+			const tbody = $('scan-table');
+			const placeholder = tbody.querySelector('td[colspan]');
+			if(placeholder) placeholder.parentElement.remove();
+			tbody.prepend(renderRow(entry, type));
+		}
+
+		let stream;
+		function connectStream(){
+			stream = new EventSource('/api/stream');
+			stream.onopen = () => {
+				$('live-badge').className = 'live-badge live';
+				$('live-text').textContent = 'live';
+			};
+			stream.onerror = () => {
+				$('live-badge').className = 'live-badge offline';
+				$('live-text').textContent = 'reconnecting…';
+				// EventSource auto-reconnects; nothing else to do.
+			};
+			stream.addEventListener('scan', ev => {
+				try{
+					const data = JSON.parse(ev.data);
+					if(data.type === 'duplicate'){
+						// duplicates are not stored — show the attempt locally; it
+						// disappears on the next refresh.
+						prependScan(data.entry || data, 'duplicate');
+					}else{
+						// accepted scan: refetch so the table and counts stay exact.
+						loadScans().catch(() => {});
+						if(data.class && data.class !== state.activeClass){
+							// class changed server-side (another admin); refresh controls
+							loadClasses().catch(() => {});
+						}
+					}
+				}catch(e){ console.error('bad SSE payload', e); }
+			});
+		}
+
+		/* ---------------- scan list & stats ---------------- */
+
+		async function loadScans(){
+			const url = state.viewClass === 'all'
+				? '/api/scans?limit=200'
+				: `/api/scans?class=${encodeURIComponent(state.viewClass)}&limit=200`;
+			const scans = await api(url);
+
+			const tbody = $('scan-table');
+			if(!scans.length){
+				tbody.innerHTML = '<tr><td colspan="4" style="color:var(--muted)">No scans yet.</td></tr>';
+			}else{
+				tbody.innerHTML = '';
+				for(const s of scans) tbody.appendChild(renderRow(s, 'scan'));
+			}
+			computeStats(scans);
+		}
+
+		function computeStats(scans){
+			const today = new Date().toISOString().slice(0, 10);
+			$('stat-today').textContent = scans.filter(s => (s.timestamp || '').startsWith(today)).length;
+			// totals come from the class list (scan_count), not the capped recent list
+			const total = state.viewClass === 'all'
+				? state.classes.reduce((sum, c) => sum + c.scan_count, 0)
+				: (state.classes.find(c => c.name === state.viewClass) || {scan_count: scans.length}).scan_count;
+			$('stat-total').textContent = total;
+		}
+
+		/* ---------------- CSV archive ---------------- */
+
+		async function loadCsv(){
+			const info = await api('/api/csv');
+			$('csv-dir').textContent = info.directory;
+			$('db-path').textContent = info.database;
+			const tbody = $('csv-table');
+			if(!info.files.length){
+				tbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted)">No CSVs yet.</td></tr>';
+				return;
+			}
+			tbody.innerHTML = '';
+			for(const f of info.files){
+				const tr = document.createElement('tr');
+				tr.innerHTML =
+					`<td>${escapeHtml(f.class)}</td>` +
+					`<td>${f.rows}</td>` +
+					`<td class="hide-mobile">${fmtBytes(f.bytes)}</td>` +
+					`<td class="hide-mobile">${escapeHtml(f.modified.replace('T', ' '))}</td>` +
+					`<td><a href="/api/csv/${encodeURIComponent(f.slug)}/download">Download</a></td>`;
+				tbody.appendChild(tr);
+			}
+		}
+
+		/* ---------------- wire up ---------------- */
+
+		$('use-class-btn').addEventListener('click', async () => {
+			const name = $('class-select').value;
+			if(name) await setActiveClass(name);
+		});
+
+		$('create-class-btn').addEventListener('click', async () => {
+			const name = $('new-class-input').value.trim();
+			if(!name){ toast('Type a class name first'); return; }
+			await setActiveClass(name);
+			$('new-class-input').value = '';
+			loadCsv().catch(() => {});
+		});
+		$('new-class-input').addEventListener('keydown', ev => {
+			if(ev.key === 'Enter') $('create-class-btn').click();
+		});
+
+		$('view-class').addEventListener('change', ev => {
+			state.viewClass = ev.target.value;
+			loadScans().catch(err => toast(err.message));
+		});
+
+		$('copy-path-btn').addEventListener('click', async () => {
+			try{
+				await navigator.clipboard.writeText($('csv-dir').textContent);
+				toast('Path copied');
+			}catch(e){
+				toast('Copy failed — select the text manually');
+			}
+		});
+
+		async function refreshAll(){
+			try{
+				await loadClasses();
+				await loadScans();
+				await loadCsv();
+			}catch(err){
+				console.error(err);
+				toast(err.message);
+			}
+		}
+
+		refreshAll();
+		connectStream();
+		// periodic refresh keeps counts and the CSV table honest even if an
+		// SSE message is dropped by a flaky wireless link.
+		setInterval(() => { loadScans().catch(() => {}); loadCsv().catch(() => {}); }, 30000);
+	</script>
+</body>
+</html>
